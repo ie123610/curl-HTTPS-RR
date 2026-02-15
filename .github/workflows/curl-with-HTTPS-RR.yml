@@ -79,6 +79,7 @@ jobs:
             --enable-static \
             --without-libpsl \
             --without-libidn2 \
+            --enable-http3 \
             --with-zlib
           make -j$(nproc)
 
