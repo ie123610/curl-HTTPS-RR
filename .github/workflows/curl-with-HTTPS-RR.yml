@@ -1,11 +1,11 @@
-name: Build ECH-enabled curl (Static with c-ares)
+name: Build ECH + HTTP3 + c-ares curl
 
 on:
-  workflow_dispatch: # 手动触发构建
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 使用 22.04 以确保更好的 glibc 兼容性
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout curl
@@ -17,43 +17,61 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y automake libtool make gcc perl zlib1g-dev
+          sudo apt-get install -y automake libtool make gcc perl zlib1g-dev cmake pkg-config
 
-# 第一步：手动构建静态 c-ares (使用 CMake)
+      # 1. 编译静态 c-ares
       - name: Build static c-ares
         run: |
           git clone https://github.com/c-ares/c-ares.git
           cd c-ares
-          mkdir build
-          cd build
-          # -DCARES_SHARED=OFF 确保只生成静态库
-          # -DCARES_STATIC=ON 开启静态库构建
-          # -DCARES_BUILD_TESTS=OFF 避免因为缺少 gtest 报错
-          cmake -DCMAKE_INSTALL_PREFIX=$HOME/cares-static \
-                -DCARES_SHARED=OFF \
-                -DCARES_STATIC=ON \
-                -DCARES_BUILD_TESTS=OFF \
-                -DCMAKE_BUILD_TYPE=Release ..
-          make -j$(nproc)
-          make install
+          mkdir build && cd build
+          cmake -DCMAKE_INSTALL_PREFIX=$HOME/all-static \
+                -DCARES_SHARED=OFF -DCARES_STATIC=ON -DCARES_BUILD_TESTS=OFF ..
+          make -j$(nproc) install
 
-      # 第二步：构建支持 ECH 的 OpenSSL (静态)
+      # 2. 编译静态 OpenSSL (ECH 分支)
       - name: Build ECH-enabled OpenSSL
         run: |
           git clone https://github.com/openssl/openssl --branch feature/ech --single-branch
           cd openssl
-          ./config no-shared --libdir=lib --prefix=$HOME/openssl-ech
+          ./config no-shared --libdir=lib --prefix=$HOME/all-static
           make -j$(nproc)
           make install_sw
-          
-      # 第三步：构建 curl，链接静态 OpenSSL 和 静态 c-ares
-      - name: Build curl with ECH & c-ares
+
+      # 3. 编译静态 nghttp3 (HTTP/3 帧处理库)
+      - name: Build nghttp3
+        run: |
+          git clone https://github.com/ngtcp2/nghttp3.git
+          cd nghttp3
+          autoreconf -fi
+          ./configure --prefix=$HOME/all-static --enable-lib-only --enable-static --disable-shared
+          make -j$(nproc) install
+
+      # 4. 编译静态 ngtcp2 (QUIC 协议库)
+      - name: Build ngtcp2
+        run: |
+          git clone https://github.com/ngtcp2/ngtcp2.git
+          cd ngtcp2
+          autoreconf -fi
+          # 指定 openssl 路径以开启 QUIC 支持
+          ./configure --prefix=$HOME/all-static \
+                      --with-openssl \
+                      PKG_CONFIG_PATH="$HOME/all-static/lib/pkgconfig" \
+                      --enable-static --disable-shared
+          make -j$(nproc) install
+
+      # 5. 最终编译 curl
+      - name: Build curl with ECH, c-ares, HTTP3
         run: |
           cd curl
           autoreconf -fi
+          # 设置 pkg-config 路径以便发现所有自定义库
+          export PKG_CONFIG_PATH="$HOME/all-static/lib/pkgconfig"
           ./configure \
-            --with-ssl=$HOME/openssl-ech \
-            --enable-ares=$HOME/cares-static \
+            --with-ssl=$HOME/all-static \
+            --enable-ares=$HOME/all-static \
+            --with-ngtcp2=$HOME/all-static \
+            --with-nghttp3=$HOME/all-static \
             --enable-ech \
             --enable-httpsrr \
             --enable-doh \
@@ -64,25 +82,18 @@ jobs:
             --with-zlib
           make -j$(nproc)
 
-      # 第四步：验证构建结果
-      - name: Verify Build Features
+      # 6. 验证构建结果
+      - name: Verify Build
         run: |
-          echo "--- CURL VERSION INFO ---"
+          echo "--- VERSION ---"
           ./curl/src/curl --version
-          echo "--- CHECKING ECH, HTTPS-RR, AsynchDNS ---"
-          ./curl/src/curl --version | grep -E "ECH|HTTPS-RR|AsynchDNS"
-          
-      # 第五步：验证链接情况 (确认是否还有动态依赖)
-      - name: Verify Binary Linkage
-        run: |
-          echo "--- FILE INFO ---"
-          file ./curl/src/curl
-          echo "--- LDD INFO ---"
-          ldd ./curl/src/curl || echo "Pure static binary"
+          echo "--- CHECK FEATURES ---"
+          ./curl/src/curl --version | grep -E "ECH|HTTP3|AsynchDNS|HTTPS-RR"
+          echo "--- LDD CHECK ---"
+          ldd ./curl/src/curl || echo "Static"
 
-      # 第六步：上传单个静态二进制文件
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: curl-ech-ares-static-linux
+          name: curl-ech-h3-ares-static
           path: curl/src/curl
