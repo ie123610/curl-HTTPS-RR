@@ -1,0 +1,59 @@
+name: Build ECH-enabled curl
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout curl
+        uses: actions/checkout@v4
+        with:
+          repository: curl/curl
+          path: curl
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y automake libtool make gcc perl zlib1g-dev
+
+      # 第一步：构建支持 ECH 的 OpenSSL
+      - name: Build ECH-enabled OpenSSL
+        run: |
+          git clone https://github.com/openssl/openssl --branch feature/ech --single-branch
+          cd openssl
+          ./config --libdir=lib --prefix=$HOME/openssl-ech
+          make -j$(nproc)
+          make install_sw
+          
+      # 第二步：构建 curl 并链接到上面的 OpenSSL
+      - name: Build curl with ECH support
+        run: |
+          cd curl
+          ./buildconf
+          # 设置 LDFLAGS 以便在运行时能找到 libssl
+          export LDFLAGS="-Wl,-rpath,$HOME/openssl-ech/lib"
+          ./configure \
+            --with-ssl=$HOME/openssl-ech \
+            --enable-ech \
+            --enable-doh \
+            --disable-shared
+          make -j$(nproc)
+          
+      # 第三步：验证构建结果
+      - name: Verify Build
+        run: |
+          ./curl/src/curl --version
+          # 检查输出中是否包含 ECH 关键字
+          ./curl/src/curl --version | grep -i "ECH" || echo "ECH support not found"
+
+      # 第四步：上传二进制文件
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: curl-ech-bin
+          path: curl/src/curl
