@@ -1,9 +1,8 @@
 name: Build ECH-enabled curl
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+#  push:
+  workflow_dispatch: # on button click
 
 jobs:
   build:
@@ -43,6 +42,7 @@ jobs:
                 --enable-doh \
                 --disable-shared \
                 --without-libpsl \
+                --enable-static \
                 --without-libidn2
               make -j$(nproc)
           
@@ -53,9 +53,22 @@ jobs:
           # 检查输出中是否包含 ECH 关键字
           ./curl/src/curl --version | grep -i "ECH" || echo "ECH support not found"
 
-      # 第四步：上传二进制文件
+      - name: Build and Install curl
+        run: |
+          cd curl
+          # ... 前面的 autoreconf 和 configure 命令保持不变 ...
+          make -j$(nproc)
+          # 将 curl 安装到当前目录下的 'dist' 文件夹
+          make install DESTDIR=$(pwd)/dist
+
+      - name: Verify correct binary
+        run: |
+          # 检查我们刚刚安装出来的文件版本
+          ./curl/dist/usr/local/bin/curl --version | grep -i "ECH"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: curl-ech-bin
-          path: curl/src/curl
+          name: curl-ech-bundle
+          # 上传整个安装后的目录
+          path: curl/dist/usr/local/
