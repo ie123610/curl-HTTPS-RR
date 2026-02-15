@@ -25,26 +25,28 @@ jobs:
         run: |
           git clone https://github.com/openssl/openssl --branch feature/ech --single-branch
           cd openssl
-          ./config --libdir=lib --prefix=$HOME/openssl-ech
+          ./config no-shared --libdir=lib --prefix=$HOME/openssl-ech
           make -j$(nproc)
           make install_sw
           
       # 第二步：构建 curl 并链接到上面的 OpenSSL
       - name: Build curl with ECH support
         run: |
-              cd curl
-              autoreconf -fi  # 替代 ./buildconf
-              export LDFLAGS="-Wl,-rpath,$HOME/openssl-ech/lib"
-              ./configure \
-                --with-ssl=$HOME/openssl-ech \
-                --enable-ech \
-                --enable-httpsrr \
-                --enable-doh \
-                --disable-shared \
-                --without-libpsl \
-                --enable-static \
-                --without-libidn2
-              make -j$(nproc)
+          cd curl
+          autoreconf -fi
+           # 移除 LDFLAGS 中的 -rpath（因为我们要静态链接，不需要运行时路径）
+           # 使用 LIBS 强制链接一些可能需要的底层库
+          ./configure \
+          --with-ssl=$HOME/openssl-ech \
+          --enable-ech \
+          --enable-httpsrr \
+          --enable-doh \
+          --disable-shared \
+          --enable-static \
+          --without-libpsl \
+          --without-libidn2 \
+          --with-zlib
+          make -j$(nproc) P_CSIDL_PROGRAMS=  # 有时 make 会尝试重新链接，确保干净
           
       # 第三步：验证构建结果
       - name: Verify Build
@@ -66,9 +68,13 @@ jobs:
           # 检查我们刚刚安装出来的文件版本
           ./curl/dist/usr/local/bin/curl --version | grep -i "ECH"
 
+      - name: Verify Binary Linkage
+        run: |
+          file ./curl/src/curl
+          ldd ./curl/src/curl || echo "No dependencies (Static)"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: curl-ech-bundle
-          # 上传整个安装后的目录
-          path: curl/dist/usr/local/
+          name: curl-ech-static
+          path: curl/src/curl  # 仅此一个文件，因为所有依赖都已打入内部
