@@ -19,13 +19,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y automake libtool make gcc perl zlib1g-dev
 
-      # 第一步：手动构建静态 c-ares (确保没有动态库依赖)
+# 第一步：手动构建静态 c-ares (使用 CMake)
       - name: Build static c-ares
         run: |
           git clone https://github.com/c-ares/c-ares.git
           cd c-ares
-          ./autogen.sh
-          ./configure --prefix=$HOME/cares-static --enable-static --disable-shared
+          mkdir build
+          cd build
+          # -DCARES_SHARED=OFF 确保只生成静态库
+          # -DCARES_STATIC=ON 开启静态库构建
+          # -DCARES_BUILD_TESTS=OFF 避免因为缺少 gtest 报错
+          cmake -DCMAKE_INSTALL_PREFIX=$HOME/cares-static \
+                -DCARES_SHARED=OFF \
+                -DCARES_STATIC=ON \
+                -DCARES_BUILD_TESTS=OFF \
+                -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
           make install
 
