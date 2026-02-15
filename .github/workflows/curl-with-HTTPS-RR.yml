@@ -33,16 +33,18 @@ jobs:
       # 第二步：构建 curl 并链接到上面的 OpenSSL
       - name: Build curl with ECH support
         run: |
-          cd curl
-          ./buildconf
-          # 设置 LDFLAGS 以便在运行时能找到 libssl
-          export LDFLAGS="-Wl,-rpath,$HOME/openssl-ech/lib"
-          ./configure \
-            --with-ssl=$HOME/openssl-ech \
-            --enable-ech \
-            --enable-doh \
-            --disable-shared
-          make -j$(nproc)
+              cd curl
+              autoreconf -fi  # 替代 ./buildconf
+              export LDFLAGS="-Wl,-rpath,$HOME/openssl-ech/lib"
+              ./configure \
+                --with-ssl=$HOME/openssl-ech \
+                --enable-ech \
+                --enable-httpsrr \
+                --enable-doh \
+                --disable-shared \
+                --without-libpsl \
+                --without-libidn2
+              make -j$(nproc)
           
       # 第三步：验证构建结果
       - name: Verify Build
