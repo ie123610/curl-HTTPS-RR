@@ -41,7 +41,7 @@ jobs:
       # 3. 编译静态 nghttp3 (HTTP/3 帧处理库)
       - name: Build nghttp3
         run: |
-          git clone https://github.com/ngtcp2/nghttp3.git
+          git clone https://github.com/ngtcp2/nghttp3.git --recursive
           cd nghttp3
           autoreconf -fi
           ./configure --prefix=$HOME/all-static --enable-lib-only --enable-static --disable-shared
@@ -50,7 +50,7 @@ jobs:
       # 4. 编译静态 ngtcp2 (QUIC 协议库)
       - name: Build ngtcp2
         run: |
-          git clone https://github.com/ngtcp2/ngtcp2.git
+          git clone https://github.com/ngtcp2/ngtcp2.git --recursive
           cd ngtcp2
           autoreconf -fi
           # 指定 openssl 路径以开启 QUIC 支持
